@@ -1,18 +1,20 @@
-module processor(mode,databus,address,dec_en,write,read,clk);
+module processor(mode,databus,address,write,read,dreq,dack,hreq,hack,cmd,int,clk);
 
 inout [31:0] databus;
-
 output reg [31:0] address;
-input wire [1:0] mode;
-output reg dec_en;
+input wire [2:0] mode;
 output reg write;
-output reg read;
+output reg read=0;
+output reg dreq=1'b0,hack=0;
+input dack,hreq;
+output reg [1:0]cmd;
+input int; //interrupt from dma
 input clk;
 reg [31:0] register [0:7];
 reg [31:0] Dout;
+reg dd=0;
 
-
-assign databus=(write)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(write || dd)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
 initial
 begin
@@ -21,86 +23,110 @@ register[1]=32'b0;
 register[7]=32'b00000000000000000000000000001111; //'h0f
 end           
 
+
 always @(posedge clk)
+begin 
  case(mode)
-	00:
-          begin register [0]<=register[0]+1;
+	00:   
+         begin 
+            register [0]<=register[0]+1;
             register [1]<=register[1]+2; register [2]<=4+3;  register [3]<=4+4;  register [4]<=4+5; end
 
-    2'b01: //read  io2
+    3'b001: //read io1 buffer-> reg[6] = 07
         begin 
-          address<=32'b00000000000000000000000000000010;
-          read<=1'b1;
-          write<=1'b0;
-          dec_en<=1'b1;
-          register[6]<=databus; //read buffer of io1 and store in reg6
+          dreq<=1'b0;  //dma off 
+          address<=32'b00000000000000000000000000000001; //1
+          read<=1'b1; write<=1'b0;
+          register[6]<=databus; //read buffer of io1 and store in reg6 -> reg6 = 07
          end 
-     2'b10: //write in io1
+     3'b010: //write in io1 buffer[2] -> buffer[2]=reg[7]=0f
         begin 
-          address<=32'b00000000000000000000000000000001;
-          write<=1'b1;       
-          read<=1'b0;  
-          dec_en<=1'b1;
-          Dout<=register[7]; //write in io1 buffer contents of reg7
+          dreq<=1'b0; //dma off
+          address<=32'b00000000000000000000000000000010;
+          write<=1'b1;  read<=1'b0;            
+          Dout<=register[7]; // make io1 buffe[2] = reg7 = 'h0f
          end 	
-     2'b11: //read memory address 5
-        begin 
+     3'b011: //read memory address 5 via dma
+         begin
+        read<=1'b0; //3shan m7dsh yktb 3l bus
+        Dout<=32'b00000100000000001000000000000000; //instruction to dma
+        dreq<=1;       //dma request 
+        if (hreq) //dma 3ayz el bus
+          begin  
+              hack<=1; //5od el bus
+               dd<=1; //5od el instuction
+           end
+        if (dack) //dma: ana 5adt el bus w habda2 anafez
+           begin   
+             cmd<=0;
+             Dout<=32'bz; read<=1'bz; address<= 32'bz; //processor leave bus
+            end  
+
+     /* begin 
           address<=32'b00000000000000000000000000000101;         
           read<=1'b1;
           write<=1'b0;
-          dec_en<=1'b0;
-          register[7]=databus; 
-         end 	
+          register[7]=databus; // -> reg7= 5 
+         end */	
+     end
+     3'b100:
+       begin
+        read<=1'b0; //3shan m7dsh yktb 3l bus
+        Dout<=32'b00001000000000001000000000001000; //instruction to dma
+            dreq<=1;address<= 32'bz;       //dma request 
+        if (hreq) //dma 3ayz el bus
+          begin  
+              hack<=1; //5od el bus
+               dd<=1; //5od el instuction
+           end
+        if (dack) //dma: ana 5adt el bus w habda2 anafez
+           begin   
+             cmd<=2'b10;
+             Dout<=32'bz; read<=1'bz; //address<= 32'bz; //processor leave bus
+            end 
+      // if( dack==0) begin dreq=0; end 
+        end	
 
-	default:register[0]<=1;
- endcase
-
-
-
-endmodule
-
-module decoder(out,in,en);
-    input  [1:0]in;
-    output reg [3:0]out=4'b0000;
-    input en;
-
-always@(in)
-begin
-if (en)
-begin
-case (in)
- 2'b00: out<=4'b0001;   //DMA
- 2'b01: out<=4'b0010;  //i/0 1
- 2'b10: out<=4'b0100; //i/0 2
- 2'b11: out<=4'b1000; 
-default: out<=4'b0000;
+default:register[0]<=1; // ay 7aga
 endcase
+if(int==1)  // dma finish -> next posedge
+begin
+dreq<=0;
+hack<=0;
+Dout<=32'b0;
+cmd<=2'bz;
+//register[6]=databus; 
 end
 end
-
+always @(negedge clk) // dma finish -> store eldata ely gabha el dma in reg[6]
+begin
+if (int==1) begin register[6]=databus; end 
+end
 endmodule
 
-module ram(Address,Memread,Memwrite,databus,en,clk);
 
-input en;
-input[31:0]Address;
+module ram(Address,Memread,Memwrite,databus,clk);
+
+input[31:0] Address;
 input Memread;
 input Memwrite;
 input clk;
 
 inout [31:0] databus;
 reg [31:0] Dout;
-assign databus=(Memread && en)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(Memread && Address>3) ? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
-reg[31:0]mem[0:50];
+reg[31:0]mem[4:200];
 
 initial begin
 mem[4]=32'b00000000000000000000000000000100;
 mem[5]=32'b00000000000000000000000000000101;
+mem[6]=32'b00000000000000000000000000000110;
 end
 
-always@(posedge clk)
+always@(negedge clk)
 begin
+if(Address>3)
 if(Memread)
 begin
 Dout <= mem[Address];
@@ -109,71 +135,176 @@ if (Memwrite)
 begin
 mem[Address] <= databus;
 end
+
+end
+endmodule
+
+
+
+module io1(address,write,read,databus); //address=1
+
+input [31:0] address;
+input write;
+input read;
+inout [31:0] databus;
+reg [31:0] Dout;
+
+assign databus=(read && address==1)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+
+reg [31:0] buffer [0:31];
+initial begin
+buffer[0]=32'b00000000000000000000000000000111; //'h07
+buffer[1]=32'b00000000000000000000000000000111;
+end
+
+always@(address)
+begin
+if (address>=0 && address<=31)
+begin
+if (write)
+begin
+buffer[address]<=databus;
+end
+if (read)
+begin
+Dout<=buffer[address];
+end
+end
 end
 
 endmodule
 
 
-
-module io1(cs,write,read,databus);
-input cs;
+module io2(address,write,read,databus); //address=2
+input [31:0] address;
 input write;
 input read;
 
 inout [31:0] databus;
 reg [31:0] Dout;
 
-assign databus=(read && cs)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(read && address==2)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
-reg [31:0] buffer;
+reg [31:0] buffer[0:31];
 initial begin
-buffer=32'b00000000000000000000000000000111; //'h07
+buffer[0]=32'b00000000000000000000000000011111; //'h1F
 end
 
-always@(posedge cs)
+always@(address)
+begin
+if (address>=32 && address<=63)
 begin
 if (write)
 begin
-buffer<=databus;
+buffer[address]<=databus;
 end
 if (read)
 begin
-Dout<=buffer;
+Dout<=buffer[address];
+end
 end
 end
 endmodule
 
 
-module io2(cs,write,read,databus);
-input cs;
-input write;
-input read;
 
-inout [31:0] databus;
+
+module dma(address,databus,read,write,hack,dreq,dack,cmd,hreq,reset,int,clk);
+output reg [31:0] address=0;
+inout [31:0] databus; //instruction
+output reg read=0,write=0;
+input hack,dreq;
+output reg dack=0;
+output reg hreq=0;
+input [1:0] cmd;
+input reset;
+input clk;
+output reg int=0; //interrupt
+reg [31:0] buffer [0:10];
 reg [31:0] Dout;
 
-assign databus=(read && cs)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
-reg [31:0] buffer;
-initial begin
-buffer=32'b00000000000000000000000000011111; //'h1F
+assign databus=(write && dreq)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+always @(posedge clk) // lw msh 3ayz el dma y3ml 7aga (dreq=0)
+begin if (dreq==0)
+begin read<=1'bz; write<=1'bz; end end 
+
+always @(posedge clk)
+begin
+if (int==1) //lama el process te5las wl interrupt ba2a 1, saffar el dma
+begin
+buffer[0]<=0; //source
+buffer[1]<=0; //destination
+buffer[2]<=0; //count
+buffer[3]<=0; //counter
+buffer[4]<=0; //temp 
+hreq<=0;
+dack<=0;
+address<=32'bz;
+int<=0;
+end
+end 
+
+always @(posedge hack)
+begin
+ buffer[0]<=databus[25:13]; //source
+ buffer[1]<=databus[12:0]; //destination
+ buffer[2]<=databus[31:26]; //count
+ buffer[3]<=0; //counter
 end
 
-always@(posedge cs)
+
+always@(negedge clk)
 begin
-if (write)
+if(dreq==1)
+begin hreq<=1; write<=0; end
+if(hack==1)
+begin dack<=1; end
+end
+
+always@(posedge clk , cmd)
 begin
-buffer<=databus;
+case(cmd)
+2'b00:
+begin   //read
+address <= buffer[0];
+read <=1;
+buffer[3]<=buffer[3]+1;
+if (buffer[3]==buffer[2])
+begin int<=1; end
 end
-if (read)
+
+2'b10: //moving mode read in posedge (not working)
 begin
-Dout<=buffer;
+address <= buffer[0];
+read <=1;
+buffer[4]=databus;
+buffer[0]=buffer[0]+1; //next address
+buffer[3]=buffer[3]+1; //counter
+//if (buffer[3]==buffer[2])
+//begin int<=0; end
 end
+default:address =32'bz;
+endcase
 end
+
+always@(negedge clk , cmd) //in moving mode, write in negedge (not working
+begin
+case(cmd)
+2'b10:
+begin
+//read<=0;
+//write<=1;
+//address<=buffer[1];
+
+//Dout<=buffer[4];
+
+end
+endcase
+end
+
+
 endmodule
-
-
-
 
 module tbb();
 reg clock1;
@@ -187,18 +318,17 @@ begin
 assign clock1=~clock1;
 #5;
 end
-wire write,read,dec_enable;
+wire write,read,hack,dreq,dack,hreq,reset,int;
 wire [31:0] databus;
 wire [31:0]address;
-wire [3:0] cs;
-decoder dec(cs,address[1:0],dec_enable);
+wire [1:0] cmd;
+io1 io(address,write,read,databus);
+io2 ioo(address,write,read,databus);
+assign reset=0;
+ram ramm(address,read,write,databus,clock1);
 
-io1 io(cs[1],write,read,databus);
-io2 ioo(cs[2],write,read,databus);
-
-ram ramm(address,read,write,databus,~dec_enable,clock1);
-
-processor pro(2'b01,databus,address,dec_enable,write,read,clock1);
+dma dma1(address,databus,read,write,hack,dreq,dack,cmd,hreq,reset,int,clock1);
+processor pro(3'b100,databus,address,write,read,dreq,dack,hreq,hack,cmd,int,clock1);
 
 
 endmodule
