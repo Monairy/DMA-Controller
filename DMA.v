@@ -7,7 +7,7 @@ output reg write;
 output reg read;
 output reg dreq;
 output reg [1:0] cmd;
-input ddone;
+input ddone; //interrupt from DMA
 input clk;
 reg dd;
 
@@ -32,28 +32,30 @@ begin
             register [0]<=register[0]+1;
             register [1]<=register[1]+2; register [2]<=4+3;  register [3]<=4+4;  register [4]<=4+5; end
 
-    3'b001: //read io1 buffer-> reg[6] = 07
+    3'b001: //read io2 buffer[0] -> reg[6] = h'ab
         begin 
-           dreq<=0; dd<=0;
-          address<=32'b00000000000000000000000000000001; //1
-          read<=1'b1; write<=1'b0;
-          register[6]<=databus; //read buffer of io1 and store in reg6 -> reg6 = 07
+          dreq<=0; dd<=0;
+          address<=32'b00000000000000000000000000100000; //32 
+          read<=1'b1; write<=1'b0; #10
+          register[6]<=databus; //read buffer of io2 and store in reg6 -> reg6 = h'ab
          end 
      3'b010: //write in io1 buffer[2] -> buffer[2]=reg[7]=0f
         begin 
-      dreq<=0; dd<=0;
-          address<=32'b00000000000000000000000000000010;
+         dreq<=0; dd<=0;
+          address<=32'b00000000000000000000000000000010; //2
           write<=1'b1;  read<=1'b0;            
-          Dout<=register[7]; // make io1 buffe[2] = reg7 = 'h0f
+          Dout<=register[7]; // make io1 buffer[2] = reg7 = 'h0f
          end 	
      3'b011: //move 1 word from io1 buffer[2] to memory loc 70
          begin
           if (dreq==0)begin
-             address<=32'bz;
-             read<=1'b0; write<=1'b1; 
-             dreq<=1'b1;              
-             Dout<=32'b00000100000000000100000001000110;
-             cmd<=2'b00; #10  Dout<=32'bz; dd<=1; read<=1'bz; write<=1'bz;  end     
+             address<=32'bz; //floating 
+             read<=1'b0; write<=1'b1; //processor write on databus 
+             dreq<=1'b1;    //dma req        
+             Dout<=32'b00000100000000000100000001000110; //instruction to dma 
+             cmd<=2'b00; //command to dma : MOVE 
+			 #10  Dout<=32'bz; dd<=1; read<=1'bz; write<=1'bz;  //after half cycle leave bus
+			 end     
         if (ddone)begin cmd<=2'bz; Dout<=32'bz; dreq<=0; dd<=0;end
          end
      3'b100:
@@ -63,6 +65,7 @@ begin
 
 default:register[0]<=1; // ay 7aga
 endcase
+register [0]=register[0]+1;
 end
 endmodule
 
@@ -84,7 +87,6 @@ initial begin
 mem[64]=32'b00000000000000000000000000000100;
 mem[65]=32'b00000000000000000000000000000101;
 mem[66]=32'b00000000000000000000000000000110;
-Dout=32'bz;
 end
 
 always@(negedge clk)
@@ -104,7 +106,7 @@ endmodule
 
 
 
-module io1(address,write,read,databus); //address=1
+module io1(address,write,read,databus); //address=0:31
 
 input [31:0] address;
 input write;
@@ -112,12 +114,12 @@ input read;
 inout [31:0] databus;
 reg [31:0] Dout;
 
-assign databus=(read==1 && address<32)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(read==1 && address<=31)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
 reg [31:0] buffer [0:31];
 initial begin
 buffer[0]=32'b00000000000000000000000000000111; //'h07
-buffer[1]=32'b00000000000000000000000000001111; //'h0f
+buffer[1]=32'b00000000000000000000000000000111;
 buffer[2]=32'b00000000000000000000000000011111; //1f
 end
 
@@ -139,7 +141,7 @@ end
 endmodule
 
 
-module io2(address,write,read,databus); //address=2
+module io2(address,write,read,databus); //address=32:63
 input [31:0] address;
 input write;
 input read;
@@ -147,16 +149,16 @@ input read;
 inout [31:0] databus;
 reg [31:0] Dout;
 
-assign databus=(read && address>31 && address<64)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(read && address>=32 && address<=63)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
 reg [31:0] buffer[0:31];
 initial begin
-buffer[0]=32'b00000000000000000000000000010011; //'h1F
+buffer[0]=32'b00000000000000000000000010101011; //'ab
 end
 
 always@(address)
 begin
-if (address>33 && address<64)
+if (address>=32 && address<=63)
 begin
 if (write)
 begin
@@ -183,22 +185,23 @@ output reg ddone=0;
 input clk;
 reg [31:0] buffer [0:10];
 reg [31:0] Dout;
-assign databus=(write && dreq)?Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+reg writee;
+assign databus=(writee==1 && dreq==1 )?Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
-initial begin read<=1'bz; write<=1'bz; address<=32'bz;  end
+initial begin read<=1'bz; write<=1'bz; address<=32'bz; writee<=0; end
 
-always@(posedge dreq)
-begin
- buffer[0]=databus[25:13]; //source
- buffer[1]<=databus[12:0]; //destination
- buffer[2]<=databus[31:26]; //count
+always@(posedge dreq) //DMA req = 1 
+begin //set internal registers
+ buffer[0]=databus[25:13]; //source location 
+ buffer[1]<=databus[12:0]; //destination location 
+ buffer[2]<=databus[31:26]; //count number of words to transfer
 
-case (cmd)
+case (cmd) //dma mode 00:move, 01:read, 10:write 
 2'b00:
 begin
-#20 address<=buffer[0]; read<=1'b1; write<=1'b0; #1 buffer[3]<=databus;
-#10 write<=1'b1; Dout<=buffer[3]; address<=buffer[1];  read<=1'b0;
-#20 ddone<=1; Dout<=32'bz; address<=32'bz; #10 ddone<=0;
+#20 address<=buffer[0]; read<=1'b1; write<=1'b0; #1 buffer[3]<=databus; //read from io/ram
+#10 write<=1'b1; writee<=1'b1; Dout<=buffer[3]; address<=buffer[1];  read<=1'b0; //write to io/ram
+#20 ddone<=1; Dout<=32'bz; address<=32'bz; #10 ddone<=0; //interrupt processor & leave bus  
  end
  default: ddone<=0;
 endcase
@@ -229,7 +232,11 @@ io2 ioo(address,write,read,databus);
 ram ramm(address,read,write,databus,clock1);
 dma dmaa(address,databus,read,write,dreq,cmd,ddone,clock1);
 
-
-processor pro(3'b001,databus,address,write,read,dreq,cmd,ddone,clock1);
-
+reg [2:0] mode;
+processor pro(mode,databus,address,write,read,dreq,cmd,ddone,clock1);
+initial begin  
+assign mode =3'b001;
+#20 assign mode= 3'b010;
+#20 assign mode =3'b011; 
+end
 endmodule
