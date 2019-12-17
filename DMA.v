@@ -34,14 +34,14 @@ begin
 
     3'b001: //read io1 buffer-> reg[6] = 07
         begin 
-  
+           dreq<=0; dd<=0;
           address<=32'b00000000000000000000000000000001; //1
           read<=1'b1; write<=1'b0;
           register[6]<=databus; //read buffer of io1 and store in reg6 -> reg6 = 07
          end 
      3'b010: //write in io1 buffer[2] -> buffer[2]=reg[7]=0f
         begin 
-      
+      dreq<=0; dd<=0;
           address<=32'b00000000000000000000000000000010;
           write<=1'b1;  read<=1'b0;            
           Dout<=register[7]; // make io1 buffe[2] = reg7 = 'h0f
@@ -84,6 +84,7 @@ initial begin
 mem[64]=32'b00000000000000000000000000000100;
 mem[65]=32'b00000000000000000000000000000101;
 mem[66]=32'b00000000000000000000000000000110;
+Dout=32'bz;
 end
 
 always@(negedge clk)
@@ -111,12 +112,12 @@ input read;
 inout [31:0] databus;
 reg [31:0] Dout;
 
-assign databus=(read==1 && address<=31)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(read==1 && address<32)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
 reg [31:0] buffer [0:31];
 initial begin
 buffer[0]=32'b00000000000000000000000000000111; //'h07
-buffer[1]=32'b00000000000000000000000000000111;
+buffer[1]=32'b00000000000000000000000000001111; //'h0f
 buffer[2]=32'b00000000000000000000000000011111; //1f
 end
 
@@ -146,7 +147,7 @@ input read;
 inout [31:0] databus;
 reg [31:0] Dout;
 
-assign databus=(read && address>=32 && address<=63)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(read && address>31 && address<64)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
 reg [31:0] buffer[0:31];
 initial begin
@@ -155,7 +156,7 @@ end
 
 always@(address)
 begin
-if (address>=32 && address<=63)
+if (address>33 && address<64)
 begin
 if (write)
 begin
@@ -182,9 +183,9 @@ output reg ddone=0;
 input clk;
 reg [31:0] buffer [0:10];
 reg [31:0] Dout;
-assign databus=(write)?Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
+assign databus=(write && dreq)?Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 
-initial begin read<=1'bz; write<=1'b0;end
+initial begin read<=1'bz; write<=1'bz; address<=32'bz;  end
 
 always@(posedge dreq)
 begin
@@ -229,6 +230,6 @@ ram ramm(address,read,write,databus,clock1);
 dma dmaa(address,databus,read,write,dreq,cmd,ddone,clock1);
 
 
-processor pro(3'b011,databus,address,write,read,dreq,cmd,ddone,clock1);
+processor pro(3'b001,databus,address,write,read,dreq,cmd,ddone,clock1);
 
 endmodule
