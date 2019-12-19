@@ -10,7 +10,7 @@ output reg [1:0] cmd;    // dma modes 1:copy 1 word, 2:copy more than one word
 input ddone; //interrupt from DMA
 input clk;
 reg dd;
-
+reg wantbus;
 reg [31:0] register [0:9];
 reg [31:0] Dout;
 
@@ -68,7 +68,7 @@ begin
         end
 ////////////////////////////////////////////////////
 	3:  //move 3 words by dma from memory to memory
-         begin register[0]=register[0]+1;
+         begin  //showing that processor is adding
           if (dreq==0)   //there is no running dma command
 		begin 
              dreq<=1'b1;    //dma req 
@@ -77,12 +77,16 @@ begin
              Dout<=instructionData; //instruction to dma 
              cmd<=2'b01; //command to dma : MOVE 
 	    #10  Dout<=32'bz; dd<=1; read<=1'bz; write<=1'bz;  //after half cycle leave bus
-            
                  end
-        if (ddone) begin 
+            if(dreq==1)begin 
+             register[0]=register[0]+1; 
+             if(register[0]==3)begin register[1]<=register[0]; wantbus<=1; end end
+        if (ddone && wantbus) begin 
 	cmd = 0; 
-        Dout = 32'bz;
-	dreq = 0;  end
+	dreq = 0;
+         read <=0; write <=1;  address <= 90; Dout <= register[1]; 
+         #20 wantbus<=0; address<=32'bz; Dout<=32'bz; read<=1'bz; write<=1'bz;
+             end
         end
 
 
