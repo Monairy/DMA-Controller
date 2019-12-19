@@ -28,7 +28,7 @@ assign databus=(write|| dd==1)? Dout:32'bzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz;
 initial
 begin 
 dreq<=0;cmd<=0;
-read<=0;write<=0;
+read<=0;write<=0; register[0]<=0; 
 end           
 
 
@@ -50,7 +50,7 @@ begin
 	  address <= instructionAddress;
 	  Dout <= instructionData; 
          end 
-	2:  //move 1 word throw dma	
+	2:  //move 1 word by dma from io1 to mem70	
          begin
           if (dreq==0)   //there is no running dma command
 		begin 
@@ -67,8 +67,8 @@ begin
 	dreq = 0;  end
         end
 ////////////////////////////////////////////////////
-	3:  //copy 1 word through dma	
-         begin
+	3:  //move 3 words by dma from memory to memory
+         begin register[0]=register[0]+1;
           if (dreq==0)   //there is no running dma command
 		begin 
              dreq<=1'b1;    //dma req 
@@ -77,6 +77,7 @@ begin
              Dout<=instructionData; //instruction to dma 
              cmd<=2'b01; //command to dma : MOVE 
 	    #10  Dout<=32'bz; dd<=1; read<=1'bz; write<=1'bz;  //after half cycle leave bus
+            
                  end
         if (ddone) begin 
 	cmd = 0; 
@@ -87,7 +88,6 @@ begin
 
 default:register[0]<=1; // ay 7aga
 endcase
-register [0]=register[0]+1;
 end
 endmodule
 
